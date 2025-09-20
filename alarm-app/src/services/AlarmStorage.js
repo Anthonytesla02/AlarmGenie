@@ -3,6 +3,7 @@ import { NotificationService } from './NotificationService';
 
 const ALARMS_STORAGE_KEY = '@alarms';
 const DISMISSAL_CODES_STORAGE_KEY = '@dismissal_codes';
+const CUSTOM_RINGTONES_STORAGE_KEY = '@custom_ringtones';
 
 export class AlarmStorage {
   static async saveAlarms(alarms) {
@@ -181,6 +182,48 @@ export class AlarmStorage {
     } catch (error) {
       console.error('Error incrementing code attempts:', error);
       return 0;
+    }
+  }
+
+  // Custom ringtone methods
+  static async loadCustomRingtones() {
+    try {
+      const ringtonesData = await AsyncStorage.getItem(CUSTOM_RINGTONES_STORAGE_KEY);
+      return ringtonesData ? JSON.parse(ringtonesData) : {};
+    } catch (error) {
+      console.error('Error loading custom ringtones:', error);
+      return {};
+    }
+  }
+
+  static async setCustomRingtone(alarmId, ringtoneUri) {
+    try {
+      const ringtones = await this.loadCustomRingtones();
+      ringtones[alarmId] = ringtoneUri;
+      await AsyncStorage.setItem(CUSTOM_RINGTONES_STORAGE_KEY, JSON.stringify(ringtones));
+    } catch (error) {
+      console.error('Error setting custom ringtone:', error);
+      throw error;
+    }
+  }
+
+  static async getCustomRingtone(alarmId) {
+    try {
+      const ringtones = await this.loadCustomRingtones();
+      return ringtones[alarmId] || null;
+    } catch (error) {
+      console.error('Error getting custom ringtone:', error);
+      return null;
+    }
+  }
+
+  static async removeCustomRingtone(alarmId) {
+    try {
+      const ringtones = await this.loadCustomRingtones();
+      delete ringtones[alarmId];
+      await AsyncStorage.setItem(CUSTOM_RINGTONES_STORAGE_KEY, JSON.stringify(ringtones));
+    } catch (error) {
+      console.error('Error removing custom ringtone:', error);
     }
   }
 }

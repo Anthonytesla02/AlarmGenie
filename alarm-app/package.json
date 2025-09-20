@@ -20,6 +20,8 @@
     "expo-audio": "^1.0.13",
     "expo-constants": "^18.0.9",
     "expo-device": "^8.0.8",
+    "expo-document-picker": "^14.0.7",
+    "expo-media-library": "^18.2.0",
     "expo-notifications": "^0.32.11",
     "expo-status-bar": "~3.0.8",
     "react": "19.1.0",

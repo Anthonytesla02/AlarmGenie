@@ -22,22 +22,23 @@ export class NotificationService {
       const alarmTime = new Date(alarm.time);
       const now = new Date();
       
-      // If the alarm time is in the past for today, schedule for tomorrow
-      if (alarmTime <= now) {
-        alarmTime.setDate(alarmTime.getDate() + 1);
-      }
-
       let trigger;
       
       if (alarm.frequency === 'once') {
+        // For one-time alarms, if the time has passed today, schedule for tomorrow
+        if (alarmTime <= now) {
+          alarmTime.setDate(alarmTime.getDate() + 1);
+        }
         trigger = { date: alarmTime };
       } else if (alarm.frequency === 'daily') {
+        // For daily alarms, use calendar trigger without date
         trigger = {
           hour: alarmTime.getHours(),
           minute: alarmTime.getMinutes(),
           repeats: true,
         };
       } else if (alarm.frequency === 'weekly') {
+        // For weekly alarms, schedule for the specific day
         trigger = {
           weekday: alarmTime.getDay() + 1, // 1-7, Sunday is 1
           hour: alarmTime.getHours(),

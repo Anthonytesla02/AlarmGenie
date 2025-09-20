@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as DocumentPicker from 'expo-document-picker';
 import { AlarmStorage } from '../services/AlarmStorage';
 import { NotificationService } from '../services/NotificationService';
 
@@ -21,6 +22,7 @@ export default function CreateAlarmScreen({ navigation }) {
   const [frequency, setFrequency] = useState('once');
   const [duration, setDuration] = useState('5');
   const [saving, setSaving] = useState(false);
+  const [customRingtone, setCustomRingtone] = useState(null);
 
   const handleTimeChange = (event, selectedTime) => {
     const currentTime = selectedTime || time;
@@ -51,11 +53,32 @@ export default function CreateAlarmScreen({ navigation }) {
     return true;
   };
 
+  const pickCustomRingtone = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'audio/*',
+        copyToCacheDirectory: true,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setCustomRingtone(result.assets[0]);
+        Alert.alert('Success', 'Custom ringtone selected!');
+      }
+    } catch (error) {
+      console.error('Error picking ringtone:', error);
+      Alert.alert('Error', 'Failed to select ringtone. Please try again.');
+    }
+  };
+
   const saveAlarm = async () => {
     if (!validateForm()) return;
     
     setSaving(true);
     try {
+      // Add debugging log for alarm time
+      console.log('Creating alarm for time:', time.toISOString());
+      console.log('Current time:', new Date().toISOString());
+      
       const alarmData = {
         time: time.toISOString(),
         label: label.trim(),
@@ -65,6 +88,11 @@ export default function CreateAlarmScreen({ navigation }) {
       
       // AlarmStorage.addAlarm already handles notification scheduling
       const newAlarm = await AlarmStorage.addAlarm(alarmData);
+      
+      // Save custom ringtone if selected
+      if (customRingtone) {
+        await AlarmStorage.setCustomRingtone(newAlarm.id, customRingtone.uri);
+      }
       
       Alert.alert(
         'Alarm Created',
@@ -152,6 +180,27 @@ export default function CreateAlarmScreen({ navigation }) {
           </Text>
         </View>
 
+        {/* Custom Ringtone Selection */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Ringtone</Text>
+          <TouchableOpacity
+            style={styles.ringtoneButton}
+            onPress={pickCustomRingtone}
+          >
+            <Ionicons name="musical-note" size={24} color="#007AFF" />
+            <Text style={styles.ringtoneButtonText}>
+              {customRingtone ? customRingtone.name : 'Select Custom Ringtone'}
+            </Text>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
+          <Text style={styles.helperText}>
+            {customRingtone 
+              ? 'Custom ringtone selected. Default will be used if file is unavailable.'
+              : 'Choose a custom ringtone from your device or use default alarm sound'
+            }
+          </Text>
+        </View>
+
         {/* Save Button */}
         <TouchableOpacity
           style={[styles.saveButton, saving && styles.saveButtonDisabled]}
@@ -211,6 +260,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     backgroundColor: '#fafafa',
+  },
+  ringtoneButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    padding: 16,
+    justifyContent: 'space-between',
+  },
+  ringtoneButtonText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+    marginLeft: 12,
   },
   pickerContainer: {
     borderWidth: 1,

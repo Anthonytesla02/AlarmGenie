@@ -9,7 +9,8 @@ import {
   Vibration,
   BackHandler,
 } from 'react-native';
-import { Audio } from 'expo-audio';
+import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
+import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { AlarmStorage } from '../services/AlarmStorage';
 import { MistralService } from '../services/MistralService';
@@ -24,7 +25,9 @@ export default function DismissAlarmScreen({ route, navigation }) {
   const [timeRemaining, setTimeRemaining] = useState(300); // Default 5 minutes
   const [isPlaying, setIsPlaying] = useState(true);
   const [attempts, setAttempts] = useState(0);
+  const [audioSource, setAudioSource] = useState(require('../../assets/alarm-sound.wav'));
   
+  const audioPlayer = useAudioPlayer(audioSource);
   const soundRef = useRef(null);
   const timerRef = useRef(null);
 
@@ -83,31 +86,22 @@ export default function DismissAlarmScreen({ route, navigation }) {
   const playAlarmSound = async () => {
     try {
       // Set audio mode for alarm playback
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        shouldDuckAndroid: true,
-        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
-        interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX,
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: 'mixWithOthers',
       });
 
-      // Load and play the bundled alarm sound
-      const { sound } = await Audio.Sound.createAsync(
-        require('../../assets/alarm-sound.wav'),
-        {
-          shouldPlay: true,
-          isLooping: true,
-          volume: 1.0,
-        }
-      ).catch(async () => {
-        // Web fallback: use data URI beeper
-        return await Audio.Sound.createAsync(
-          { uri: 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAAkPQ==' },
-          { shouldPlay: true, isLooping: true, volume: 1.0 }
-        );
-      });
+      // Check if user has a custom ringtone
+      const customRingtone = await AlarmStorage.getCustomRingtone(alarmId);
       
-      soundRef.current = sound;
+      if (customRingtone && customRingtone !== audioSource.uri) {
+        setAudioSource({ uri: customRingtone });
+      }
+
+      // Play the audio
+      audioPlayer.play();
+      soundRef.current = audioPlayer;
       setIsPlaying(true);
     } catch (error) {
       console.error('Error playing alarm sound:', error);
@@ -123,10 +117,8 @@ export default function DismissAlarmScreen({ route, navigation }) {
 
   const stopAlarm = async () => {
     try {
-      if (soundRef.current) {
-        await soundRef.current.stopAsync();
-        await soundRef.current.unloadAsync();
-        soundRef.current = null;
+      if (audioPlayer) {
+        audioPlayer.pause();
       }
       Vibration.cancel();
       setIsPlaying(false);
