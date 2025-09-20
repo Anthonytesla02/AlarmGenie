@@ -3,14 +3,32 @@ modules = ["nodejs-20"]
 expertMode = true
 
 [workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Expo Dev Server"
+
+[[workflows.workflow]]
+name = "Expo Dev Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd alarm-app && npx expo start --web --port 5000 --host lan"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 46235
-externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
