@@ -9,36 +9,31 @@ import {
   Vibration,
   BackHandler,
 } from 'react-native';
-import { Audio } from 'expo-av';
+import { Audio } from 'expo-audio';
 import { Ionicons } from '@expo/vector-icons';
+import { AlarmStorage } from '../services/AlarmStorage';
 import { MistralService } from '../services/MistralService';
+import { NotificationService } from '../services/NotificationService';
 
 export default function DismissAlarmScreen({ route, navigation }) {
-  const { alarmId } = route.params || {};
-  const [dismissalCode, setDismissalCode] = useState('');
+  const { alarmId, duration: notificationDuration } = route.params || {};
+  const [alarm, setAlarm] = useState(null);
+  const [dismissalCodeData, setDismissalCodeData] = useState(null);
   const [userInput, setUserInput] = useState('');
   const [isGeneratingCode, setIsGeneratingCode] = useState(true);
-  const [timeRemaining, setTimeRemaining] = useState(300); // 5 minutes
+  const [timeRemaining, setTimeRemaining] = useState(300); // Default 5 minutes
   const [isPlaying, setIsPlaying] = useState(true);
   const [attempts, setAttempts] = useState(0);
   
   const soundRef = useRef(null);
   const timerRef = useRef(null);
-  const vibrationRef = useRef(null);
 
   useEffect(() => {
     // Prevent going back
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => true);
     
-    // Generate dismissal code
-    generateCode();
-    
-    // Start alarm sound and vibration
-    playAlarmSound();
-    startVibration();
-    
-    // Start countdown timer
-    startTimer();
+    // Load alarm data and setup
+    initializeAlarmDismissal();
     
     return () => {
       backHandler.remove();
@@ -47,52 +42,77 @@ export default function DismissAlarmScreen({ route, navigation }) {
     };
   }, []);
 
-  const generateCode = async () => {
-    setIsGeneratingCode(true);
+  const initializeAlarmDismissal = async () => {
     try {
-      const codeData = await MistralService.generateDismissalCode();
-      setDismissalCode(codeData.code);
+      // Load the alarm data
+      const alarmData = await AlarmStorage.getAlarm(alarmId);
+      if (alarmData) {
+        setAlarm(alarmData);
+        const alarmDuration = alarmData.duration || 5; // Default to 5 minutes
+        setTimeRemaining(alarmDuration * 60);
+      }
+
+      // Check for existing dismissal code or generate new one
+      let codeData = await AlarmStorage.getDismissalCode(alarmId);
+      if (!codeData || isCodeExpired(codeData)) {
+        // Generate new code
+        codeData = await MistralService.generateDismissalCode();
+        await AlarmStorage.saveDismissalCode(alarmId, codeData);
+      }
+      
+      setDismissalCodeData(codeData);
+      setAttempts(codeData.attempts || 0);
+      
+      // Start alarm sound and countdown
+      await playAlarmSound();
+      startVibration();
+      startTimer();
+      
     } catch (error) {
-      console.error('Error generating code:', error);
-      // Fallback code generation
-      const fallbackCode = Math.random().toString(36).substr(2, 8).toUpperCase();
-      setDismissalCode(fallbackCode);
+      console.error('Error initializing alarm dismissal:', error);
+      Alert.alert('Error', 'Failed to load alarm. Please try again.');
     } finally {
       setIsGeneratingCode(false);
     }
   };
 
+  const isCodeExpired = (codeData) => {
+    return Date.now() > codeData.expiresAt;
+  };
+
   const playAlarmSound = async () => {
     try {
+      // Set audio mode for alarm playback
       await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
         shouldDuckAndroid: true,
+        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
         interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX,
-        playThroughEarpieceAndroid: false,
       });
 
+      // Load and play the bundled alarm sound
       const { sound } = await Audio.Sound.createAsync(
-        { uri: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-        { shouldPlay: true, isLooping: true, volume: 1.0 }
-      );
+        require('../../assets/alarm-sound.wav'),
+        {
+          shouldPlay: true,
+          isLooping: true,
+          volume: 1.0,
+        }
+      ).catch(async () => {
+        // Web fallback: use data URI beeper
+        return await Audio.Sound.createAsync(
+          { uri: 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAAkPQ==' },
+          { shouldPlay: true, isLooping: true, volume: 1.0 }
+        );
+      });
       
       soundRef.current = sound;
       setIsPlaying(true);
     } catch (error) {
       console.error('Error playing alarm sound:', error);
-      // Fallback to system alert sound
-      try {
-        const { sound } = await Audio.Sound.createAsync(
-          require('../../assets/alarm-sound.mp3'), // We'll need to add this
-          { shouldPlay: true, isLooping: true, volume: 1.0 }
-        );
-        soundRef.current = sound;
-      } catch (fallbackError) {
-        console.error('Fallback sound failed:', fallbackError);
-      }
+      // Continue without sound rather than failing
+      setIsPlaying(false);
     }
   };
 
@@ -119,7 +139,6 @@ export default function DismissAlarmScreen({ route, navigation }) {
     timerRef.current = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
-          // Time's up, dismiss alarm automatically
           handleTimeout();
           return 0;
         }
@@ -129,12 +148,15 @@ export default function DismissAlarmScreen({ route, navigation }) {
   };
 
   const handleTimeout = () => {
+    stopAlarm(); // Stop immediately
     Alert.alert(
       'Alarm Timeout',
-      'The alarm has been automatically dismissed after 5 minutes.',
-      [{ text: 'OK', onPress: () => navigation.navigate('AlarmList') }]
+      `The alarm has been automatically dismissed after ${alarm?.duration || 5} minutes.`,
+      [{ text: 'OK', onPress: () => {
+        AlarmStorage.removeDismissalCode(alarmId);
+        navigation.navigate('AlarmList');
+      }}]
     );
-    stopAlarm();
   };
 
   const formatTime = (seconds) => {
@@ -143,12 +165,36 @@ export default function DismissAlarmScreen({ route, navigation }) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSubmit = () => {
-    setAttempts(prev => prev + 1);
+  const handleSubmit = async () => {
+    const newAttempts = await AlarmStorage.incrementCodeAttempts(alarmId);
+    setAttempts(newAttempts);
     
-    if (userInput.trim().toUpperCase() === dismissalCode) {
+    // Check attempt limit before processing
+    if (newAttempts > 5) {
+      Alert.alert(
+        'Maximum Attempts Exceeded',
+        'Too many failed attempts. The alarm will continue until timeout.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    if (userInput.trim().toUpperCase() === dismissalCodeData.code) {
       // Correct code entered
       stopAlarm();
+      await AlarmStorage.removeDismissalCode(alarmId);
+      
+      // For one-time alarms, cancel notification and mark as inactive
+      if (alarm && alarm.frequency === 'once') {
+        if (alarm.notificationId) {
+          await NotificationService.cancelAlarm(alarm.notificationId);
+        }
+        await AlarmStorage.updateAlarm(alarmId, { 
+          isActive: false, 
+          notificationId: null 
+        });
+      }
+      
       Alert.alert(
         'Alarm Dismissed',
         'Great! You successfully dismissed the alarm.',
@@ -158,16 +204,16 @@ export default function DismissAlarmScreen({ route, navigation }) {
       // Incorrect code
       setUserInput('');
       
-      if (attempts >= 2) {
+      if (newAttempts >= 5) {
         Alert.alert(
-          'Multiple Failed Attempts',
-          'You have entered the wrong code multiple times. The alarm will continue until the correct code is entered or time runs out.',
-          [{ text: 'Try Again' }]
+          'Too Many Failed Attempts',
+          'Maximum attempts exceeded. The alarm will continue until time runs out or the correct code is entered.',
+          [{ text: 'Continue' }]
         );
       } else {
         Alert.alert(
           'Incorrect Code',
-          'The code you entered is incorrect. Please try again.',
+          `The code you entered is incorrect. ${5 - newAttempts} attempts remaining.`,
           [{ text: 'Try Again' }]
         );
       }
@@ -176,12 +222,22 @@ export default function DismissAlarmScreen({ route, navigation }) {
 
   const regenerateCode = async () => {
     setUserInput('');
-    await generateCode();
-    Alert.alert(
-      'New Code Generated',
-      'A new dismissal code has been generated.',
-      [{ text: 'OK' }]
-    );
+    setIsGeneratingCode(true);
+    try {
+      const newCodeData = await MistralService.generateDismissalCode();
+      await AlarmStorage.saveDismissalCode(alarmId, newCodeData);
+      setDismissalCodeData(newCodeData);
+      setAttempts(0);
+      Alert.alert(
+        'New Code Generated',
+        'A new dismissal code has been generated.',
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      Alert.alert('Error', 'Failed to generate new code. Please try again.');
+    } finally {
+      setIsGeneratingCode(false);
+    }
   };
 
   if (isGeneratingCode) {
@@ -198,7 +254,7 @@ export default function DismissAlarmScreen({ route, navigation }) {
     <View style={styles.container}>
       <View style={styles.header}>
         <Ionicons name="alarm" size={48} color="#ff4444" />
-        <Text style={styles.alarmTitle}>ALARM!</Text>
+        <Text style={styles.alarmTitle}>🚨 {alarm?.label || 'ALARM'} 🚨</Text>
         <Text style={styles.timeRemainingText}>
           Time remaining: {formatTime(timeRemaining)}
         </Text>
@@ -211,7 +267,7 @@ export default function DismissAlarmScreen({ route, navigation }) {
         
         <View style={styles.codeDisplay}>
           <Text style={styles.codeText} selectable={false}>
-            {dismissalCode}
+            {dismissalCodeData?.code || 'Loading...'}
           </Text>
         </View>
         
@@ -224,7 +280,13 @@ export default function DismissAlarmScreen({ route, navigation }) {
         <TextInput
           style={styles.codeInput}
           value={userInput}
-          onChangeText={setUserInput}
+          onChangeText={(text) => {
+            // Prevent paste operations by rejecting multi-character insertions
+            if (text.length > userInput.length + 1) {
+              return; // Reject paste
+            }
+            setUserInput(text);
+          }}
           placeholder="Enter the code here"
           placeholderTextColor="#999"
           autoCapitalize="characters"
@@ -232,13 +294,17 @@ export default function DismissAlarmScreen({ route, navigation }) {
           autoComplete="off"
           textContentType="none"
           selectTextOnFocus={false}
+          contextMenuHidden={true}
+          selection={{start: userInput.length, end: userInput.length}}
+          onSelectionChange={() => {}}
           maxLength={8}
+          editable={!isGeneratingCode}
         />
         
         <TouchableOpacity
-          style={[styles.submitButton, !userInput.trim() && styles.submitButtonDisabled]}
+          style={[styles.submitButton, (!userInput.trim() || isGeneratingCode) && styles.submitButtonDisabled]}
           onPress={handleSubmit}
-          disabled={!userInput.trim()}
+          disabled={!userInput.trim() || isGeneratingCode}
         >
           <Text style={styles.submitButtonText}>Dismiss Alarm</Text>
         </TouchableOpacity>
@@ -248,14 +314,21 @@ export default function DismissAlarmScreen({ route, navigation }) {
         <TouchableOpacity
           style={styles.regenerateButton}
           onPress={regenerateCode}
+          disabled={isGeneratingCode}
         >
           <Ionicons name="refresh" size={20} color="#007AFF" />
           <Text style={styles.regenerateButtonText}>Generate New Code</Text>
         </TouchableOpacity>
         
         <Text style={styles.attemptsText}>
-          Attempts: {attempts}
+          Attempts: {attempts}/5
         </Text>
+
+        {isCodeExpired(dismissalCodeData) && (
+          <Text style={styles.expiredText}>
+            ⚠️ Code expired - generating new one...
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -279,10 +352,11 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   alarmTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#ff4444',
     marginTop: 10,
+    textAlign: 'center',
   },
   timeRemainingText: {
     fontSize: 18,
@@ -319,6 +393,7 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     letterSpacing: 4,
     fontFamily: 'monospace',
+    userSelect: 'none',
   },
   warningText: {
     fontSize: 14,
@@ -374,6 +449,12 @@ const styles = StyleSheet.create({
   attemptsText: {
     fontSize: 16,
     color: '#666',
+    marginBottom: 10,
+  },
+  expiredText: {
+    fontSize: 14,
+    color: '#ff4444',
+    fontStyle: 'italic',
   },
   loadingText: {
     fontSize: 20,

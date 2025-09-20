@@ -63,13 +63,8 @@ export default function CreateAlarmScreen({ navigation }) {
         duration: parseInt(duration),
       };
       
+      // AlarmStorage.addAlarm already handles notification scheduling
       const newAlarm = await AlarmStorage.addAlarm(alarmData);
-      
-      // Schedule the notification
-      const notificationId = await NotificationService.scheduleAlarm(newAlarm);
-      
-      // Update the alarm with the notification ID
-      await AlarmStorage.updateAlarm(newAlarm.id, { notificationId });
       
       Alert.alert(
         'Alarm Created',

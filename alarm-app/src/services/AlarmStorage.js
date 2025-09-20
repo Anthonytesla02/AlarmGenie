@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NotificationService } from './NotificationService';
 
 const ALARMS_STORAGE_KEY = '@alarms';
+const DISMISSAL_CODES_STORAGE_KEY = '@dismissal_codes';
 
 export class AlarmStorage {
   static async saveAlarms(alarms) {
@@ -31,6 +33,11 @@ export class AlarmStorage {
         isActive: true,
         createdAt: new Date().toISOString(),
       };
+      
+      // Schedule the notification
+      const notificationId = await NotificationService.scheduleAlarm(newAlarm);
+      newAlarm.notificationId = notificationId;
+      
       alarms.push(newAlarm);
       await this.saveAlarms(alarms);
       return newAlarm;
@@ -43,6 +50,16 @@ export class AlarmStorage {
   static async deleteAlarm(alarmId) {
     try {
       const alarms = await this.loadAlarms();
+      const alarmToDelete = alarms.find(alarm => alarm.id === alarmId);
+      
+      // Cancel the notification if it exists
+      if (alarmToDelete && alarmToDelete.notificationId) {
+        await NotificationService.cancelAlarm(alarmToDelete.notificationId);
+      }
+      
+      // Remove dismissal code for this alarm
+      await this.removeDismissalCode(alarmId);
+      
       const filteredAlarms = alarms.filter(alarm => alarm.id !== alarmId);
       await this.saveAlarms(filteredAlarms);
     } catch (error) {
@@ -67,13 +84,103 @@ export class AlarmStorage {
   static async toggleAlarm(alarmId) {
     try {
       const alarms = await this.loadAlarms();
-      const updatedAlarms = alarms.map(alarm => 
-        alarm.id === alarmId ? { ...alarm, isActive: !alarm.isActive } : alarm
-      );
-      await this.saveAlarms(updatedAlarms);
+      const alarmToToggle = alarms.find(alarm => alarm.id === alarmId);
+      
+      if (alarmToToggle) {
+        const newActiveState = !alarmToToggle.isActive;
+        
+        if (newActiveState) {
+          // Turning alarm on - schedule notification
+          const notificationId = await NotificationService.scheduleAlarm({
+            ...alarmToToggle,
+            isActive: true
+          });
+          alarmToToggle.notificationId = notificationId;
+        } else {
+          // Turning alarm off - cancel notification
+          if (alarmToToggle.notificationId) {
+            await NotificationService.cancelAlarm(alarmToToggle.notificationId);
+          }
+          alarmToToggle.notificationId = null;
+        }
+        
+        alarmToToggle.isActive = newActiveState;
+        await this.saveAlarms(alarms);
+      }
     } catch (error) {
       console.error('Error toggling alarm:', error);
       throw error;
+    }
+  }
+
+  static async getAlarm(alarmId) {
+    try {
+      const alarms = await this.loadAlarms();
+      return alarms.find(alarm => alarm.id === alarmId);
+    } catch (error) {
+      console.error('Error getting alarm:', error);
+      return null;
+    }
+  }
+
+  // Dismissal code management
+  static async saveDismissalCode(alarmId, codeData) {
+    try {
+      const codes = await this.loadDismissalCodes();
+      codes[alarmId] = {
+        ...codeData,
+        createdAt: Date.now(),
+        attempts: 0,
+      };
+      await AsyncStorage.setItem(DISMISSAL_CODES_STORAGE_KEY, JSON.stringify(codes));
+    } catch (error) {
+      console.error('Error saving dismissal code:', error);
+      throw error;
+    }
+  }
+
+  static async loadDismissalCodes() {
+    try {
+      const codesData = await AsyncStorage.getItem(DISMISSAL_CODES_STORAGE_KEY);
+      return codesData ? JSON.parse(codesData) : {};
+    } catch (error) {
+      console.error('Error loading dismissal codes:', error);
+      return {};
+    }
+  }
+
+  static async getDismissalCode(alarmId) {
+    try {
+      const codes = await this.loadDismissalCodes();
+      return codes[alarmId] || null;
+    } catch (error) {
+      console.error('Error getting dismissal code:', error);
+      return null;
+    }
+  }
+
+  static async removeDismissalCode(alarmId) {
+    try {
+      const codes = await this.loadDismissalCodes();
+      delete codes[alarmId];
+      await AsyncStorage.setItem(DISMISSAL_CODES_STORAGE_KEY, JSON.stringify(codes));
+    } catch (error) {
+      console.error('Error removing dismissal code:', error);
+    }
+  }
+
+  static async incrementCodeAttempts(alarmId) {
+    try {
+      const codes = await this.loadDismissalCodes();
+      if (codes[alarmId]) {
+        codes[alarmId].attempts = (codes[alarmId].attempts || 0) + 1;
+        await AsyncStorage.setItem(DISMISSAL_CODES_STORAGE_KEY, JSON.stringify(codes));
+        return codes[alarmId].attempts;
+      }
+      return 0;
+    } catch (error) {
+      console.error('Error incrementing code attempts:', error);
+      return 0;
     }
   }
 }

@@ -1,9 +1,24 @@
 import * as Notifications from 'expo-notifications';
-import { MistralService } from './MistralService';
+import { Platform } from 'react-native';
 
 export class NotificationService {
+  static async setupNotificationChannels() {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('alarm-channel', {
+        name: 'Alarm Notifications',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+        sound: 'default',
+        enableVibrate: true,
+      });
+    }
+  }
+
   static async scheduleAlarm(alarm) {
     try {
+      await this.setupNotificationChannels();
+      
       const alarmTime = new Date(alarm.time);
       const now = new Date();
       
@@ -12,29 +27,36 @@ export class NotificationService {
         alarmTime.setDate(alarmTime.getDate() + 1);
       }
 
-      const trigger = {
-        date: alarmTime,
-        repeats: alarm.frequency !== 'once',
-      };
-
-      // If it's a repeating alarm, set the appropriate repeat pattern
-      if (alarm.frequency === 'daily') {
-        trigger.repeats = true;
+      let trigger;
+      
+      if (alarm.frequency === 'once') {
+        trigger = { date: alarmTime };
+      } else if (alarm.frequency === 'daily') {
+        trigger = {
+          hour: alarmTime.getHours(),
+          minute: alarmTime.getMinutes(),
+          repeats: true,
+        };
       } else if (alarm.frequency === 'weekly') {
-        trigger.repeats = true;
-        trigger.weekday = alarmTime.getDay() + 1; // 1-7, Sunday is 1
+        trigger = {
+          weekday: alarmTime.getDay() + 1, // 1-7, Sunday is 1
+          hour: alarmTime.getHours(),
+          minute: alarmTime.getMinutes(),
+          repeats: true,
+        };
       }
 
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
-          title: 'Alarm!',
+          title: '🚨 Alarm!',
           body: alarm.label || 'Time to wake up!',
           sound: true,
-          priority: Notifications.AndroidNotificationPriority.HIGH,
+          priority: Notifications.AndroidNotificationPriority.MAX,
           vibrate: [0, 250, 250, 250],
           data: {
             alarmId: alarm.id,
             type: 'alarm',
+            duration: alarm.duration,
           },
         },
         trigger,
@@ -49,7 +71,9 @@ export class NotificationService {
 
   static async cancelAlarm(notificationId) {
     try {
-      await Notifications.cancelScheduledNotificationAsync(notificationId);
+      if (notificationId) {
+        await Notifications.cancelScheduledNotificationAsync(notificationId);
+      }
     } catch (error) {
       console.error('Error cancelling alarm:', error);
       throw error;
@@ -78,14 +102,20 @@ export class NotificationService {
     // Listen for notifications when app is in foreground
     const foregroundSubscription = Notifications.addNotificationReceivedListener(notification => {
       console.log('Notification received in foreground:', notification);
+      // Show alert that alarm is going off
+      const { alarmId, duration } = notification.request.content.data;
+      if (alarmId) {
+        // Navigate immediately to dismiss screen
+        navigation.navigate('DismissAlarm', { alarmId, duration });
+      }
     });
 
     // Listen for notification responses (when user taps notification)
     const responseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
-      const { alarmId } = response.notification.request.content.data;
+      const { alarmId, duration } = response.notification.request.content.data;
       if (alarmId) {
         // Navigate to dismiss alarm screen
-        navigation.navigate('DismissAlarm', { alarmId });
+        navigation.navigate('DismissAlarm', { alarmId, duration });
       }
     });
 
