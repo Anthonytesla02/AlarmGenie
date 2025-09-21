@@ -39,5 +39,5 @@ channel = "stable-25_05"
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["bash", "-c", "cd alarm-app && npx serve -s dist -p 5000"]
-build = ["bash", "-c", "cd alarm-app && npm run build"]
+run = ["npx", "serve", "-s", "alarm-app/dist", "-l", "5000"]
+build = ["npm", "run", "build"]
