@@ -34,9 +34,13 @@ export class NotificationService {
         // For one-time alarms, calculate the next occurrence
         let scheduledTime = new Date(alarmTime);
         
-        // If the alarm time has passed today, schedule for tomorrow
-        if (scheduledTime <= now) {
+        // If the alarm time has passed today OR is less than 3 minutes in the future, schedule for tomorrow
+        const minBufferMs = 3 * 60 * 1000; // 3 minutes minimum buffer
+        const timeUntilAlarm = scheduledTime.getTime() - now.getTime();
+        
+        if (scheduledTime <= now || timeUntilAlarm < minBufferMs) {
           scheduledTime.setDate(scheduledTime.getDate() + 1);
+          console.log('Alarm time too soon or in past, scheduling for next day');
         }
         
         console.log('Scheduling one-time alarm for:', scheduledTime.toISOString());
@@ -211,9 +215,13 @@ export class NotificationService {
         // For one-time alarms, verify the time is approximately correct
         // Allow some tolerance for OS scheduling variations
         const scheduledTime = new Date(alarm.time);
+        const createdAt = new Date(alarm.createdAt);
         
-        // If the alarm time was in the past when created, it was scheduled for the next day
-        if (scheduledTime <= new Date(alarm.createdAt)) {
+        // Determine if alarm was scheduled for next day due to timing rules
+        const minBufferMs = 3 * 60 * 1000; // 3 minutes minimum buffer
+        const timeUntilAlarmAtCreation = scheduledTime.getTime() - createdAt.getTime();
+        
+        if (scheduledTime <= createdAt || timeUntilAlarmAtCreation < minBufferMs) {
           scheduledTime.setDate(scheduledTime.getDate() + 1);
         }
         
@@ -224,7 +232,8 @@ export class NotificationService {
           scheduled: scheduledTime.toISOString(),
           current: now.toISOString(),
           diffMinutes: timeDiff / (60 * 1000),
-          withinTolerance: timeDiff <= toleranceMs
+          withinTolerance: timeDiff <= toleranceMs,
+          wasScheduledForNextDay: scheduledTime.getDate() !== new Date(alarm.time).getDate()
         });
         
         return timeDiff <= toleranceMs;

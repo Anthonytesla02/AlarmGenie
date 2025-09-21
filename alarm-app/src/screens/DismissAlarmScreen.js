@@ -9,7 +9,7 @@ import {
   Vibration,
   BackHandler,
 } from 'react-native';
-import { AudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { Audio } from 'expo-av';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { AlarmStorage } from '../services/AlarmStorage';
@@ -41,10 +41,10 @@ export default function DismissAlarmScreen({ route, navigation }) {
       backHandler.remove();
       stopAlarm();
       if (timerRef.current) clearInterval(timerRef.current);
-      // Clean up audio player resources
+      // Clean up audio resources
       if (audioPlayerRef.current) {
         try {
-          audioPlayerRef.current.remove();
+          audioPlayerRef.current.unloadAsync();
         } catch (e) {
           console.log('Error cleaning up audio player:', e);
         }
@@ -93,10 +93,12 @@ export default function DismissAlarmScreen({ route, navigation }) {
   const playAlarmSound = async () => {
     try {
       // Configure audio mode for alarm playback
-      await setAudioModeAsync({
-        playsInSilentMode: true,
-        shouldPlayInBackground: true,
-        interruptionMode: 'mixWithOthers',
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: true,
       });
 
       // Load default audio source
@@ -118,31 +120,28 @@ export default function DismissAlarmScreen({ route, navigation }) {
 
   const playAudio = async (audioSource) => {
     try {
-      // Clean up any existing player
+      // Clean up any existing sound
       if (audioPlayerRef.current) {
         try {
-          audioPlayerRef.current.remove();
+          await audioPlayerRef.current.unloadAsync();
         } catch (e) {
-          console.log('Error removing previous player:', e);
+          console.log('Error unloading previous sound:', e);
         }
         audioPlayerRef.current = null;
       }
 
-      // Create new audio player
-      const player = new AudioPlayer(audioSource);
-      audioPlayerRef.current = player;
-      setAudioPlayer(player);
-      
-      // Set up looping by handling play completion
-      player.addListener('playbackStatusChanged', (status) => {
-        if (status.isLoaded && status.didJustFinish && isPlaying) {
-          // Restart the audio to loop
-          player.replay().catch(console.error);
+      // Create new sound object
+      const { sound } = await Audio.Sound.createAsync(
+        audioSource,
+        {
+          shouldPlay: true,
+          isLooping: true,
+          volume: 1.0,
         }
-      });
+      );
       
-      // Start playing
-      await player.play();
+      audioPlayerRef.current = sound;
+      setAudioPlayer(sound);
       setIsPlaying(true);
       
       console.log('Audio player started successfully with looping');
@@ -160,8 +159,8 @@ export default function DismissAlarmScreen({ route, navigation }) {
   const stopAlarm = async () => {
     try {
       if (audioPlayerRef.current) {
-        await audioPlayerRef.current.pause();
-        audioPlayerRef.current.remove();
+        await audioPlayerRef.current.pauseAsync();
+        await audioPlayerRef.current.unloadAsync();
         audioPlayerRef.current = null;
         setAudioPlayer(null);
       }
