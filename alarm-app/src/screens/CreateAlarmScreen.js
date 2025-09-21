@@ -12,6 +12,7 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as DocumentPicker from 'expo-document-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { AlarmStorage } from '../services/AlarmStorage';
 import { NotificationService } from '../services/NotificationService';
 
