@@ -14,6 +14,10 @@ author = "agent"
 task = "workflow.run"
 args = "Expo Native Dev Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Expo Web Dev Server"
+
 [[workflows.workflow]]
 name = "Expo Native Dev Server"
 author = "agent"
@@ -25,13 +29,25 @@ args = "cd alarm-app && EXPO_NO_INTERACTIVE=1 npx expo start --tunnel"
 [workflows.workflow.metadata]
 outputType = "console"
 
+[[workflows.workflow]]
+name = "Expo Web Dev Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd alarm-app && npm run web"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[ports]]
 localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 8081
-externalPort = 8081
+localPort = 40375
+externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
