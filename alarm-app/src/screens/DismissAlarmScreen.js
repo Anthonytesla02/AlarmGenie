@@ -23,13 +23,18 @@ export default function DismissAlarmScreen({ route, navigation }) {
   const [userInput, setUserInput] = useState('');
   const [isGeneratingCode, setIsGeneratingCode] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(300); // Default 5 minutes
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [attempts, setAttempts] = useState(0);
   const [audioSource, setAudioSource] = useState(require('../../assets/alarm-sound.wav'));
   
   const audioPlayer = useAudioPlayer(audioSource);
-  const soundRef = useRef(null);
   const timerRef = useRef(null);
+  const audioPlayerRef = useRef(audioPlayer);
+
+  // Sync audioPlayerRef when audioPlayer changes
+  useEffect(() => {
+    audioPlayerRef.current = audioPlayer;
+  }, [audioPlayer]);
 
   useEffect(() => {
     // Prevent going back
@@ -96,16 +101,35 @@ export default function DismissAlarmScreen({ route, navigation }) {
       const customRingtone = await AlarmStorage.getCustomRingtone(alarmId);
       
       if (customRingtone && customRingtone !== audioSource.uri) {
+        // Update audio source and wait for next render cycle
         setAudioSource({ uri: customRingtone });
+        // Use a timeout to ensure the new audio player is ready
+        setTimeout(async () => {
+          await playAudio();
+        }, 100);
+        return;
       }
 
-      // Play the audio
-      audioPlayer.play();
-      soundRef.current = audioPlayer;
-      setIsPlaying(true);
+      await playAudio();
     } catch (error) {
       console.error('Error playing alarm sound:', error);
       // Continue without sound rather than failing
+      setIsPlaying(false);
+    }
+  };
+
+  const playAudio = async () => {
+    try {
+      // Play the audio safely
+      if (audioPlayerRef.current && typeof audioPlayerRef.current.play === 'function') {
+        await audioPlayerRef.current.play();
+        setIsPlaying(true);
+      } else {
+        console.log('Audio player not available, continuing without sound');
+        setIsPlaying(false);
+      }
+    } catch (error) {
+      console.error('Error playing audio:', error);
       setIsPlaying(false);
     }
   };
@@ -117,13 +141,15 @@ export default function DismissAlarmScreen({ route, navigation }) {
 
   const stopAlarm = async () => {
     try {
-      if (audioPlayer) {
-        audioPlayer.pause();
+      if (audioPlayerRef.current && typeof audioPlayerRef.current.pause === 'function') {
+        await audioPlayerRef.current.pause();
       }
       Vibration.cancel();
       setIsPlaying(false);
     } catch (error) {
       console.error('Error stopping alarm:', error);
+      // Continue anyway to ensure the alarm stops
+      setIsPlaying(false);
     }
   };
 
