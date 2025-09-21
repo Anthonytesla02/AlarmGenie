@@ -19,14 +19,10 @@ export default function AlarmListScreen({ navigation }) {
   useEffect(() => {
     loadAlarms();
     
-    // Set up notification listener
-    const unsubscribe = NotificationService.setupNotificationListener(navigation);
-    
     // Reload alarms when screen is focused
     const unsubscribeFocus = navigation.addListener('focus', loadAlarms);
     
     return () => {
-      unsubscribe && unsubscribe();
       unsubscribeFocus();
     };
   }, [navigation]);

@@ -208,10 +208,26 @@ export class NotificationService {
       
       // Validate based on frequency
       if (alarm.frequency === 'once') {
-        // For one-time alarms, trust the OS scheduling since we fixed the scheduling logic
-        // The OS wouldn't fire the notification unless it was time
-        console.log('One-time alarm triggered, trusting OS scheduling');
-        return true;
+        // For one-time alarms, verify the time is approximately correct
+        // Allow some tolerance for OS scheduling variations
+        const scheduledTime = new Date(alarm.time);
+        
+        // If the alarm time was in the past when created, it was scheduled for the next day
+        if (scheduledTime <= new Date(alarm.createdAt)) {
+          scheduledTime.setDate(scheduledTime.getDate() + 1);
+        }
+        
+        const timeDiff = Math.abs(now.getTime() - scheduledTime.getTime());
+        const toleranceMs = 2 * 60 * 1000; // 2 minutes tolerance
+        
+        console.log('One-time alarm validation:', {
+          scheduled: scheduledTime.toISOString(),
+          current: now.toISOString(),
+          diffMinutes: timeDiff / (60 * 1000),
+          withinTolerance: timeDiff <= toleranceMs
+        });
+        
+        return timeDiff <= toleranceMs;
       } else if (alarm.frequency === 'daily') {
         // For daily alarms, check if hour and minute match (within 90 seconds)
         const nowMinutes = now.getHours() * 60 + now.getMinutes();

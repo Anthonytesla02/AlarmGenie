@@ -9,7 +9,7 @@ import {
   Vibration,
   BackHandler,
 } from 'react-native';
-import { setAudioModeAsync, useAudioPlayer } from 'expo-audio';
+import { AudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { AlarmStorage } from '../services/AlarmStorage';
@@ -25,16 +25,10 @@ export default function DismissAlarmScreen({ route, navigation }) {
   const [timeRemaining, setTimeRemaining] = useState(300); // Default 5 minutes
   const [isPlaying, setIsPlaying] = useState(false);
   const [attempts, setAttempts] = useState(0);
-  const [audioSource, setAudioSource] = useState(require('../../assets/alarm-sound.wav'));
+  const [audioPlayer, setAudioPlayer] = useState(null);
   
-  const audioPlayer = useAudioPlayer(audioSource);
   const timerRef = useRef(null);
-  const audioPlayerRef = useRef(audioPlayer);
-
-  // Sync audioPlayerRef when audioPlayer changes
-  useEffect(() => {
-    audioPlayerRef.current = audioPlayer;
-  }, [audioPlayer]);
+  const audioPlayerRef = useRef(null);
 
   useEffect(() => {
     // Prevent going back
@@ -47,6 +41,14 @@ export default function DismissAlarmScreen({ route, navigation }) {
       backHandler.remove();
       stopAlarm();
       if (timerRef.current) clearInterval(timerRef.current);
+      // Clean up audio player resources
+      if (audioPlayerRef.current) {
+        try {
+          audioPlayerRef.current.remove();
+        } catch (e) {
+          console.log('Error cleaning up audio player:', e);
+        }
+      }
     };
   }, []);
 
@@ -90,27 +92,23 @@ export default function DismissAlarmScreen({ route, navigation }) {
 
   const playAlarmSound = async () => {
     try {
-      // Set audio mode for alarm playback
+      // Configure audio mode for alarm playback
       await setAudioModeAsync({
         playsInSilentMode: true,
         shouldPlayInBackground: true,
         interruptionMode: 'mixWithOthers',
       });
 
+      // Load default audio source
+      let audioSource = require('../../assets/alarm-sound.wav');
+      
       // Check if user has a custom ringtone
       const customRingtone = await AlarmStorage.getCustomRingtone(alarmId);
-      
-      if (customRingtone && customRingtone !== audioSource.uri) {
-        // Update audio source and wait for next render cycle
-        setAudioSource({ uri: customRingtone });
-        // Use a timeout to ensure the new audio player is ready
-        setTimeout(async () => {
-          await playAudio();
-        }, 100);
-        return;
+      if (customRingtone) {
+        audioSource = { uri: customRingtone };
       }
 
-      await playAudio();
+      await playAudio(audioSource);
     } catch (error) {
       console.error('Error playing alarm sound:', error);
       // Continue without sound rather than failing
@@ -118,16 +116,36 @@ export default function DismissAlarmScreen({ route, navigation }) {
     }
   };
 
-  const playAudio = async () => {
+  const playAudio = async (audioSource) => {
     try {
-      // Play the audio safely
-      if (audioPlayerRef.current && typeof audioPlayerRef.current.play === 'function') {
-        await audioPlayerRef.current.play();
-        setIsPlaying(true);
-      } else {
-        console.log('Audio player not available, continuing without sound');
-        setIsPlaying(false);
+      // Clean up any existing player
+      if (audioPlayerRef.current) {
+        try {
+          audioPlayerRef.current.remove();
+        } catch (e) {
+          console.log('Error removing previous player:', e);
+        }
+        audioPlayerRef.current = null;
       }
+
+      // Create new audio player
+      const player = new AudioPlayer(audioSource);
+      audioPlayerRef.current = player;
+      setAudioPlayer(player);
+      
+      // Set up looping by handling play completion
+      player.addListener('playbackStatusChanged', (status) => {
+        if (status.isLoaded && status.didJustFinish && isPlaying) {
+          // Restart the audio to loop
+          player.replay().catch(console.error);
+        }
+      });
+      
+      // Start playing
+      await player.play();
+      setIsPlaying(true);
+      
+      console.log('Audio player started successfully with looping');
     } catch (error) {
       console.error('Error playing audio:', error);
       setIsPlaying(false);
@@ -141,8 +159,11 @@ export default function DismissAlarmScreen({ route, navigation }) {
 
   const stopAlarm = async () => {
     try {
-      if (audioPlayerRef.current && typeof audioPlayerRef.current.pause === 'function') {
+      if (audioPlayerRef.current) {
         await audioPlayerRef.current.pause();
+        audioPlayerRef.current.remove();
+        audioPlayerRef.current = null;
+        setAudioPlayer(null);
       }
       Vibration.cancel();
       setIsPlaying(false);

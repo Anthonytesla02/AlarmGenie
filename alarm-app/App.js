@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import AlarmListScreen from './src/screens/AlarmListScreen';
 import CreateAlarmScreen from './src/screens/CreateAlarmScreen';
 import DismissAlarmScreen from './src/screens/DismissAlarmScreen';
+import { NotificationService } from './src/services/NotificationService';
 
 const Stack = createNativeStackNavigator();
 
@@ -20,6 +21,9 @@ Notifications.setNotificationHandler({
 });
 
 export default function App() {
+  const navigationRef = useRef();
+  const notificationListenerRef = useRef(null);
+
   useEffect(() => {
     // Request notification permissions on app start
     const requestPermissions = async () => {
@@ -29,10 +33,29 @@ export default function App() {
       }
     };
     requestPermissions();
+
+    // Cleanup notification listeners on unmount
+    return () => {
+      if (notificationListenerRef.current) {
+        notificationListenerRef.current();
+        notificationListenerRef.current = null;
+      }
+    };
   }, []);
 
+  const onNavigationReady = () => {
+    // Set up notification listeners once navigation is ready
+    if (!notificationListenerRef.current) {
+      const unsubscribe = NotificationService.setupNotificationListener(navigationRef.current);
+      notificationListenerRef.current = unsubscribe;
+    }
+  };
+
   return (
-    <NavigationContainer>
+    <NavigationContainer 
+      ref={navigationRef}
+      onReady={onNavigationReady}
+    >
       <Stack.Navigator initialRouteName="AlarmList">
         <Stack.Screen 
           name="AlarmList" 
